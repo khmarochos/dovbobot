@@ -1,0 +1,10 @@
+
+# Ignore dynaconf secret files
+.secrets.*
+.*.secrets.*
+
+# Ignore IDE files
+.idea
+
+# Ignore __pycache__ files
+__pycache__
