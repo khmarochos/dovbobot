@@ -2,6 +2,7 @@ import logging
 import random
 import string
 from enum import StrEnum
+from symtable import Function
 
 import openai
 from typing_extensions import Optional
@@ -27,6 +28,7 @@ def chat_event_handler(function):
     injects it into the handler as a parameter.
     """
     async def wrapper(self, *args, **kwargs):
+        # logger.debug(f'Wrapper for {function.__name__} called')
         chat_id = kwargs.get('chat_id')
         if chat_id is None:
             raise ValueError("The chat_id parameter is required for all chat event handlers")
@@ -41,13 +43,14 @@ def chat_event_handler(function):
             if self.conversations.get(chat_id) is None:
                 self.conversations[chat_id] = my_conversation
             kwargs['conversation_history'] = my_conversation
+        # logger.debug('Calling function %s with args %s and kwargs %s', function.__name__, args, kwargs)
         return await function(self, *args, **kwargs)
     return wrapper
 
 
 class Interlocutor:
 
-    async def call_openai(self, conversation_history: conversation.Conversation, prompt: str):
+    async def call_openai(self, conversation_history: conversation.Conversation, prompt: Optional[str] = None):
         """Calls OpenAI API to generate a response."""
         if prompt is not None:
             conversation_history.add_user(prompt)
@@ -57,7 +60,6 @@ class Interlocutor:
         )
         chatgpt_reply = completion.choices[0].message.content.strip()
         conversation_history.add_assistant(chatgpt_reply)
-        logger.debug("OpenAI replied: %s", chatgpt_reply)
         return chatgpt_reply
 
     @chat_event_handler
@@ -86,9 +88,11 @@ class Interlocutor:
             chat_id: int,
             message: str,
             conversation_history: conversation.Conversation,
+            user_name: str,
             reply_needed: bool
     ) -> Optional[str]:
-        prompt: str = message.strip()
+        logger.debug("Handling group message from %s: %s", user_name, message)
+        prompt: str = f'{user_name}> {message.strip()}'
         conversation_history.add_user(prompt)
         if reply_needed:
             return await self.call_openai(conversation_history=conversation_history)

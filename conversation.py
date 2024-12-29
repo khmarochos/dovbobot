@@ -2,6 +2,11 @@ import logging
 from collections import deque
 from enum import StrEnum
 
+from config import PROJECT_NAME
+
+
+logger = logging.getLogger(f'{PROJECT_NAME}.{__name__}')
+
 
 class MessageRole(StrEnum):
     SYSTEM = "system"

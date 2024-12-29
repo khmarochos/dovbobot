@@ -13,8 +13,9 @@ from telegram.ext import (
 )
 
 from interlocutor import Interlocutor
+from config import PROJECT_NAME
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f'{PROJECT_NAME}.{__name__}')
 
 
 class TelegramClient:
