@@ -43,7 +43,6 @@ def chat_event_handler(function):
             if self.conversations.get(chat_id) is None:
                 self.conversations[chat_id] = my_conversation
             kwargs['conversation_history'] = my_conversation
-        # logger.debug('Calling function %s with args %s and kwargs %s', function.__name__, args, kwargs)
         return await function(self, *args, **kwargs)
     return wrapper
 
@@ -70,16 +69,17 @@ class Interlocutor:
             user_name: str,
             conversation_history: conversation.Conversation
     ):
+        message = message.strip()
+        logger.debug('PVT %s> %s', user_name, message)
         if message is None or message.strip() == '/start':
             prompt: str = \
                 f'***{self.ventriloquate}*** СФОРМУЛЮЙ ВІД СВОГО ІМЕНІ НАСТУПНЕ: ' + \
                 self.common_phrases[CommonPhrase.BOT_SAYS_HI].format(user_name=user_name)
-        else:
-            prompt: str = message.strip()
         response = await self.call_openai(
             conversation_history=conversation_history,
-            prompt=prompt
+            prompt=message
         )
+        logger.debug('PVT <%s %s', user_name, response)
         return response
 
     @chat_event_handler
@@ -91,11 +91,13 @@ class Interlocutor:
             user_name: str,
             reply_needed: bool
     ) -> Optional[str]:
-        logger.debug("Handling group message from %s: %s", user_name, message)
-        prompt: str = f'{user_name}> {message.strip()}'
-        conversation_history.add_user(prompt)
+        message = message.strip()
+        conversation_history.add_user(message)
         if reply_needed:
-            return await self.call_openai(conversation_history=conversation_history)
+            logger.debug('GRP %s> %s', user_name, message)
+            response = await self.call_openai(conversation_history=conversation_history)
+            logger.debug('GRP <%s %s', user_name, response)
+            return response
         else:
             return None
 
