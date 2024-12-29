@@ -11,7 +11,7 @@ def setup_logging(logging_level: int, logging_format: str) -> None:
 
     class ModuleFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
-            return record.name.startswith(f'{config.PROJECT_NAME}')
+            return (record.levelno >= logging.WARNING) or (record.name.startswith(f'{config.PROJECT_NAME}'))
 
     logger = logging.getLogger()
     logger.setLevel(logging_level)
