@@ -89,14 +89,15 @@ class Interlocutor:
             message: str,
             conversation_history: conversation.Conversation,
             user_name: str,
+            group_name: str,
             reply_needed: bool
     ) -> Optional[str]:
         message = message.strip()
         conversation_history.add_user(message)
         if reply_needed:
-            logger.debug('GRP %s> %s', user_name, message)
+            logger.debug('GRP %s, %s > %s', group_name, user_name, message)
             response = await self.call_openai(conversation_history=conversation_history)
-            logger.debug('GRP <%s %s', user_name, response)
+            logger.debug('GRP %s, %s < %s', group_name, user_name, response)
             return response
         else:
             return None

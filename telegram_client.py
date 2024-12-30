@@ -154,6 +154,7 @@ class TelegramClient:
                 chat_id=chat.id,
                 message=update.effective_message.text,
                 user_name=user_name,
+                group_name=chat.title,
                 reply_needed=must_reply
             )
             if must_reply:
