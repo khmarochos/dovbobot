@@ -141,7 +141,7 @@ class TelegramClient:
             must_reply = (
                 (
                     # Check if the message contains the bot's username
-                    update.effective_message.text.__contains__('@dovbobot')
+                    update.effective_message.text.__contains__(context.bot.username)
                 ) or
                 (
                     # Check if the message is a reply to the bot's message
