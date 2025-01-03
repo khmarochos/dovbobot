@@ -38,11 +38,17 @@ class Conversation:
     def get_history(self) -> list:
         return [self.system_prompt] + list(self.conversation_history)
 
+    def prettify(self):
+        result = ''
+        for message in self.get_history():
+            result += f"{message['role'].capitalize()}: \n{message}\n\n"
+        return result
+
     def __init__(
             self,
             system_prompt: str,
             history_size: int
     ) -> None:
-        self.system_prompt = {'role': MessageRole.SYSTEM, 'content': system_prompt}
+        self.system_prompt = {'role': MessageRole.SYSTEM.__str__(), 'content': system_prompt}
         self.history_size = history_size
         self.conversation_history = deque(maxlen=history_size)

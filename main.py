@@ -43,7 +43,7 @@ def main() -> None:
     my_interlocutor = interlocutor.Interlocutor(
         openai_api_key=configuration_settings.openai.api_key,
         conversations=my_conversations,
-        ventriloquate=None,
+        super_user_mode=None,
         system_prompt=configuration_settings.interlocutor.system_prompt,
         common_phrases=configuration_settings.interlocutor.common_phrases
     )
