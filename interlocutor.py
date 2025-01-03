@@ -21,6 +21,10 @@ logger = logging.getLogger(f'{PROJECT_NAME}.{__name__}')
 class CommonPhrase(StrEnum):
     BOT_SAYS_HI = "bot_says_hi"
     BOT_JOINS_CHAT = "bot_joins_chat"
+    USER_JOINS_CHAT = "user_joins_chat"
+    USER_LEAVES_CHAT = "user_leaves_chat"
+    USER_INVITED_TO_CHAT = "user_invited_to_chat"
+    USER_KICKED_FROM_CHAT = "user_kicked_from_chat"
 
 
 def chat_event_handler(function):
@@ -70,15 +74,17 @@ class Interlocutor:
             user_name: str,
             conversation_history: conversation.Conversation
     ):
-        message = message.strip()
-        logger.debug('PVT %s> %s', user_name, message)
+        prompt = message.strip()
+        logger.debug('PVT %s> %s', user_name, prompt)
         if message is None or message.strip() == '/start':
-            prompt: str = \
-                f'{self.super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: ' + \
-                self.common_phrases[CommonPhrase.BOT_SAYS_HI].format(user_name=user_name)
+            what_to_say = self.common_phrases[CommonPhrase.BOT_SAYS_HI].format(user_name=user_name)
+            prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
+                super_user_mode=self.super_user_mode,
+                what_to_say=what_to_say
+            )
         response = await self.call_openai(
             conversation_history=conversation_history,
-            prompt=message
+            prompt=prompt
         )
         logger.debug('PVT <%s %s', user_name, response)
         return response
@@ -110,17 +116,57 @@ class Interlocutor:
             group_name: str,
             conversation_history: conversation.Conversation,
     ):
-        prompt: str = \
-            f'{self.super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: ' + \
-            self.common_phrases[CommonPhrase.BOT_JOINS_CHAT].format(group_name=group_name)
+        what_to_say = self.common_phrases[CommonPhrase.BOT_JOINS_CHAT].format(group_name=group_name)
+        prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
+            super_user_mode=self.super_user_mode,
+            what_to_say=what_to_say
+        )
         response = await self.call_openai(conversation_history=conversation_history, prompt=prompt)
         return response
 
-    async def handle_user_joins_chat(self, user_name: str, cause_name: str):
-        return "..."
+    @chat_event_handler
+    async def handle_user_joins_chat(
+            self,
+            chat_id: int,
+            user_name: str,
+            cause_name: str,
+            invited: bool,
+            conversation_history: conversation.Conversation
+    ):
+        what_to_say = self.common_phrases[
+            CommonPhrase.USER_INVITED_TO_CHAT if invited else CommonPhrase.USER_JOINS_CHAT
+        ].format(
+            user_name=user_name,
+            inviter_name=cause_name
+        )
+        prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
+            super_user_mode=self.super_user_mode,
+            what_to_say=what_to_say
+        )
+        response = await self.call_openai(conversation_history=conversation_history, prompt=prompt)
+        return response
 
-    async def handle_user_leaves_chat(self, user_name: str, cause_name: str):
-        return "..."
+    @chat_event_handler
+    async def handle_user_leaves_chat(
+            self,
+            chat_id: int,
+            user_name: str,
+            cause_name: str,
+            kicked: bool,
+            conversation_history: conversation.Conversation
+    ):
+        what_to_say = self.common_phrases[
+            CommonPhrase.USER_KICKED_FROM_CHAT if kicked else CommonPhrase.USER_LEAVES_CHAT
+        ].format(
+            user_name=user_name,
+            kicker_name=cause_name
+        )
+        prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
+            super_user_mode=self.super_user_mode,
+            what_to_say=what_to_say
+        )
+        response = await self.call_openai(conversation_history=conversation_history, prompt=prompt)
+        return response
 
     def __init__(
             self,

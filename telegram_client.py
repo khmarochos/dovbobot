@@ -107,15 +107,19 @@ class TelegramClient:
         message_text = f'Салют, {member_user_name}!'
 
         if not was_member and is_member:
-            if cause_user_id == member_user_id:
-                message_text = f"{member_user_name} приєднався до чату. Ласкаво просимо!"
-            else:
-                message_text = f"{member_user_name} приєднався до чату завдяки {cause_user_name}. Ласкаво просимо!"
+            message_text = await self.interlocutor.handle_user_joins_chat(
+                chat_id=update.effective_chat.id,
+                user_name=member_user_name,
+                cause_name=cause_user_name,
+                invited=(cause_user_id != member_user_id)
+            )
         elif was_member and not is_member:
-            if cause_user_id == member_user_id:
-                message_text = f"{member_user_name} більше не з нами."
-            else:
-                message_text = f"{member_user_name} більше не з нами. Дякуємо за це {cause_user_name}."
+            message_text = await self.interlocutor.handle_user_leaves_chat(
+                chat_id=update.effective_chat.id,
+                user_name=member_user_name,
+                cause_name=cause_user_name,
+                kicked=(cause_user_id != member_user_id)
+            )
 
         await update.effective_chat.send_message(message_text, parse_mode=ParseMode.HTML)
 
