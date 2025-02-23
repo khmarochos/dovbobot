@@ -36,7 +36,7 @@ class Conversation:
         self.add(content, MessageRole.ASSISTANT.__str__())
 
     def get_history(self) -> list:
-        return [self.system_prompt] + list(self.conversation_history)
+        return list(self.conversation_history)
 
     def prettify(self):
         result = ''
@@ -46,9 +46,7 @@ class Conversation:
 
     def __init__(
             self,
-            system_prompt: str,
             history_size: int
     ) -> None:
-        self.system_prompt = {'role': MessageRole.SYSTEM.__str__(), 'content': system_prompt}
         self.history_size = history_size
         self.conversation_history = deque(maxlen=history_size)

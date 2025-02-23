@@ -4,7 +4,7 @@ import argparse
 import dynaconf
 
 
-PROJECT_NAME = 'dovbobot'
+PROJECT_NAME = 'XGameMasterBot'
 
 
 logger = logging.getLogger(__name__)

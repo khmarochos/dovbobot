@@ -42,10 +42,9 @@ def main() -> None:
 
     my_interlocutor = interlocutor.Interlocutor(
         openai_api_key=configuration_settings.openai.api_key,
-        conversations=my_conversations,
-        super_user_mode=None,
-        system_prompt=configuration_settings.interlocutor.system_prompt,
-        common_phrases=configuration_settings.interlocutor.common_phrases
+        assistant_id=configuration_settings.openai.assistant_id,
+        common_phrases=configuration_settings.interlocutor.common_phrases,
+        conversations=my_conversations
     )
 
     my_telegram_client = telegram_client.TelegramClient(
