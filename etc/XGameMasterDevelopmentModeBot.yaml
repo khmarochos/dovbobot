@@ -1,0 +1,11 @@
+logging:
+  level: DEBUG
+  format: "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s"
+interlocutor:
+  common_phrases:
+    bot_says_hi: "Привіт, {user_name}. Чи знаєш ти правила гри?"
+    bot_joins_chat: "Всім привіт. Радий приєднатися до групи \"{group_name}\"."
+    user_joins_chat: "Привіт, {user_name}. Якщо не знаєш правил гри - звертайся, я поясню."
+    user_leaves_chat: "Шкода, що {user_name} вже пішов."
+    user_invited_to_chat: "Це {inviter_name} запросив сюди {user_name}. Привіт! Якщо не знаєш правил гри - звертайся, я поясню."
+    user_kicked_from_chat: "Нарешті {kicker_name} викинув звідси {user_name}."
