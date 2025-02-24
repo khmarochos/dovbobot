@@ -1,0 +1,83 @@
+{
+  "name": "answers",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Type of the communication",
+        "enum": [
+          "remark",
+          "question",
+          "answer",
+          "person",
+          "congratulations",
+          "noop"
+        ]
+      },
+      "content": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Name of the recipient"
+              },
+              {
+                "type": "null",
+                "description": "The recipient isn't assigned"
+              }
+            ]
+          },
+          "sender": {
+            "type": "string",
+            "description": "Name of the sender"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Text of the message"
+              },
+              {
+                "type": "null",
+                "description": "No message"
+              }
+            ]
+          },
+          "yes": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "description": "Was the assumption correct?"
+              },
+              {
+                "type": "null",
+                "description": "Neither yes nor no"
+              }
+            ]
+          },
+          "debug": {
+            "type": "string",
+            "description": "Debug information"
+          }
+        },
+        "required": [
+          "sender",
+          "recipient",
+          "message",
+          "yes",
+          "debug"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "type",
+      "content"
+    ],
+    "additionalProperties": false
+  }
+}

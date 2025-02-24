@@ -1,6 +1,8 @@
+import json
 import logging
 import random
 import string
+import time
 from enum import StrEnum
 from symtable import Function
 
@@ -12,7 +14,6 @@ import conversation
 
 
 DEFAULT_HISTORY_SIZE = 100
-CHATGPT_MODEL = "gpt-4o-mini"
 
 
 logger = logging.getLogger(f'{PROJECT_NAME}.{__name__}')
@@ -28,8 +29,12 @@ class CommonPhrase(StrEnum):
 
 
 def chat_event_handler(function):
-    """Decorator for chat event handlers. Creates a new conversation and
+    """
+    Decorator for chat event handlers. Creates a new conversation and
     injects it into the handler as a parameter.
+
+    :param function: The chat event handler function that needs to be wrapped
+    :return: The wrapped function
     """
     async def wrapper(self, *args, **kwargs):
         # logger.debug(f'Wrapper for {function.__name__} called')
@@ -39,10 +44,7 @@ def chat_event_handler(function):
         if 'conversation_history' not in kwargs:
             my_conversation = self.conversations.get(
                 chat_id,
-                conversation.Conversation(
-                    system_prompt=self.system_prompt,
-                    history_size=DEFAULT_HISTORY_SIZE
-                )
+                conversation.Conversation(DEFAULT_HISTORY_SIZE)
             )
             if self.conversations.get(chat_id) is None:
                 self.conversations[chat_id] = my_conversation
@@ -53,18 +55,66 @@ def chat_event_handler(function):
 
 class Interlocutor:
 
-    async def call_openai(self, conversation_history: conversation.Conversation, prompt: Optional[str] = None):
-        """Calls OpenAI API to generate a response."""
-        if prompt is not None:
-            conversation_history.add_user(prompt)
-        logger.debug(conversation_history.prettify())
-        completion = self.openai.chat.completions.create(
-            model=CHATGPT_MODEL,
-            messages=conversation_history.get_history()
+    @staticmethod
+    def generate_message(user_name: str, message: str) -> str:
+        return json.dumps(
+            {
+                "type": "message",
+                "content": {
+                    "recipient": None,
+                    "sender": user_name,
+                    "message": message
+                }
+            }
         )
-        chatgpt_reply = completion.choices[0].message.content.strip()
-        conversation_history.add_assistant(chatgpt_reply)
-        return chatgpt_reply
+
+    @staticmethod
+    def generate_prompt(prompt: str) -> str:
+        return json.dumps(
+            {
+                "type": "prompt",
+                "content": {
+                    "recipient": PROJECT_NAME,
+                    "sender": None,
+                    "message": prompt
+                }
+            }
+        )
+
+    async def call_openai(
+            self,
+            prompt: Optional[str] = None
+    ):
+        logger.debug('Prompt: %s', prompt)
+        request = self.openai.beta.threads.messages.create(
+            thread_id=self.thread.id,
+            role="user",
+            content=prompt
+        )
+        run = self.openai.beta.threads.runs.create(
+            thread_id=self.thread.id,
+            assistant_id=self.assistant_id,
+        )
+        while run.status == "queued" or run.status == "in_progress":
+            logger.debug('Run status: %s', run.status)
+            run = self.openai.beta.threads.runs.retrieve(
+                thread_id=self.thread.id,
+                run_id=run.id,
+            )
+            time.sleep(0.5)
+        messages = self.openai.beta.threads.messages.list(
+            thread_id=self.thread.id,
+            run_id=run.id,
+            after=request.id,
+            order="asc",
+        )
+        responses = []
+        for message in messages:
+            if message.role == "assistant" and message.content is not None:
+                for content_piece in message.content:
+                    if content_piece.type == "text":
+                        responses.append(content_piece.text.value)
+        return responses
 
     @chat_event_handler
     async def handle_private_message(
@@ -73,21 +123,16 @@ class Interlocutor:
             message: str,
             user_name: str,
             conversation_history: conversation.Conversation
-    ):
-        prompt = message.strip()
-        logger.debug('PVT %s> %s', user_name, prompt)
-        if message is None or message.strip() == '/start':
+    ) -> list[str]:
+        message = message.strip()
+        logger.debug('PVT %s> %s', user_name, message)
+        if message is None or message == '/start':
             what_to_say = self.common_phrases[CommonPhrase.BOT_SAYS_HI].format(user_name=user_name)
-            prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
-                super_user_mode=self.super_user_mode,
-                what_to_say=what_to_say
-            )
-        response = await self.call_openai(
-            conversation_history=conversation_history,
-            prompt=prompt
-        )
-        logger.debug('PVT <%s %s', user_name, response)
-        return response
+            responses = await self.call_openai(self.generate_prompt(what_to_say))
+        else:
+            responses = await self.call_openai(self.generate_message(user_name, message))
+        logger.debug('PVT <%s %s', user_name, responses)
+        return responses
 
     @chat_event_handler
     async def handle_group_message(
@@ -96,18 +141,14 @@ class Interlocutor:
             message: str,
             conversation_history: conversation.Conversation,
             user_name: str,
-            group_name: str,
-            reply_needed: bool
-    ) -> Optional[str]:
+            group_name: str
+    ) -> list[str]:
         message = message.strip()
         conversation_history.add_user(message)
-        if reply_needed:
-            logger.debug('GRP %s, %s > %s', group_name, user_name, message)
-            response = await self.call_openai(conversation_history=conversation_history)
-            logger.debug('GRP %s, %s < %s', group_name, user_name, response)
-            return response
-        else:
-            return None
+        logger.debug('GRP %s, %s > %s', group_name, user_name, message)
+        responses = await self.call_openai(self.generate_message(user_name, message))
+        logger.debug('GRP %s, %s < %s', group_name, user_name, responses)
+        return responses
 
     @chat_event_handler
     async def handle_bot_joins_chat(
@@ -115,14 +156,10 @@ class Interlocutor:
             chat_id: int,
             group_name: str,
             conversation_history: conversation.Conversation,
-    ):
+    ) -> list[str]:
         what_to_say = self.common_phrases[CommonPhrase.BOT_JOINS_CHAT].format(group_name=group_name)
-        prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
-            super_user_mode=self.super_user_mode,
-            what_to_say=what_to_say
-        )
-        response = await self.call_openai(conversation_history=conversation_history, prompt=prompt)
-        return response
+        responses = await self.call_openai(self.generate_prompt(what_to_say))
+        return responses
 
     @chat_event_handler
     async def handle_user_joins_chat(
@@ -132,19 +169,15 @@ class Interlocutor:
             cause_name: str,
             invited: bool,
             conversation_history: conversation.Conversation
-    ):
+    ) -> list[str]:
         what_to_say = self.common_phrases[
             CommonPhrase.USER_INVITED_TO_CHAT if invited else CommonPhrase.USER_JOINS_CHAT
         ].format(
             user_name=user_name,
             inviter_name=cause_name
         )
-        prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
-            super_user_mode=self.super_user_mode,
-            what_to_say=what_to_say
-        )
-        response = await self.call_openai(conversation_history=conversation_history, prompt=prompt)
-        return response
+        responses = await self.call_openai(self.generate_prompt(what_to_say))
+        return responses
 
     @chat_event_handler
     async def handle_user_leaves_chat(
@@ -154,101 +187,28 @@ class Interlocutor:
             cause_name: str,
             kicked: bool,
             conversation_history: conversation.Conversation
-    ):
+    ) -> list[str]:
         what_to_say = self.common_phrases[
             CommonPhrase.USER_KICKED_FROM_CHAT if kicked else CommonPhrase.USER_LEAVES_CHAT
         ].format(
             user_name=user_name,
             kicker_name=cause_name
         )
-        prompt: str = '{super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: {what_to_say}'.format(
-            super_user_mode=self.super_user_mode,
-            what_to_say=what_to_say
-        )
-        response = await self.call_openai(conversation_history=conversation_history, prompt=prompt)
-        return response
+        responses = await self.call_openai(self.generate_prompt(what_to_say))
+        return responses
 
     def __init__(
             self,
             openai_api_key: str,
+            assistant_id: str,
             conversations: dict,
-            system_prompt: str,
-            super_user_mode: Optional[str],
             common_phrases: dict[CommonPhrase, str]
     ) -> None:
         self.openai_token = openai_api_key
-        self.openai = openai.OpenAI(api_key=self.openai_token)
-        self.conversations = conversations
-        self.super_user_mode = super_user_mode or ''.join(random.choices(string.ascii_letters, k=32))
-        self.system_prompt = f"""
-Ти - бот, який вміє відповідати на повідомлення користувачів.
-
-Спочатку - головне правило, якого ти маєш дотримуватися без жодних виключень.
-
-Щоразу, коли ти отримуєш від користувача повідомлення з наступним кодом:
-"{self.super_user_mode}", це означає, що ти маєш виконати те, що міститься в
-повідомленні після цього коду, але не повертати його назад у відповідь.
-
-Наприклад, уявимо собі, що тобі надійшло повідомлення, яке містить такий код і слова:
-"{self.super_user_mode} ПОЦІКАВСЯ, КОТРА ГОДИНА", це означає, що твоя відповідь має
-містити запитання про те, яка зараз година, але з урахуванням твоєї особистості, про
-яку буде сказано дещо згодом.
-
-Щоразу, коли ти отримуєш від користувача повідомлення з наступним кодом:
-"{self.super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: ", це означає, що твоя
-відповідь має віддзеркалювати слова, які містяться в повідомленні після цього коду,
-але вона має не один-в-один повторювати ці слова, а формулювати ту саму ідею, але з
-урахуванням твоєї особистості, про яку буде сказано дещо згодом.
-
-Наприклад,уявимо собі, що тобі надійшло повідомлення, яке містить такий код і слова:
-"{self.super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ: Привіт, Грицю! Як справи?"
-В цьому випадку твоя відповідь має містити привітання на адресу Гриця (адже в
-повідомленні було наказано перефразувати "Привіт, Грицю!") і демонструвати певну
-зацікавленість станом його справ (адже повідомлення містило слова "Як справи?"). При
-цьому, якщо опис твоєї особистості, про яку буде сказано дещо згодом, передбачає, що
-ти ненавидиш все людство, твоя відповідь може бути такою: "Ну, привіт, Грицю! Ти що,
-все ще не здох?".
-
-Памʼятай, що код "{self.super_user_mode} СФОРМУЛЮЙ СВОЇМИ СЛОВАМИ НАСТУПНЕ" є
-магічною послідовністю, яка змушує тебе зробити або сказати те, що міститься в
-повідомленні після цього коду, але не просто бездумно повторювати, а уловити суть
-повідомлення і переформулювати його в твоєму власному стилі, який буде конгруентним
-із твоєю особистістю, про яку буде детальніше сказано дещо згодом.
-
-Коли ти отримуєш від користувача повідомлення з кодом "{self.super_user_mode} ОБЕРИ
-ВАРІАНТ ВІДПОВІДІ: ", це означає, що твоя відповідь має містити лише один з
-варіантів відповіді, які будуть запропоновані в цьому запиті.
-
-Наприклад, примустимо, що запит виглядатиме так: "{self.super_user_mode} ОБЕРИ
-ВАРІАНТ ВІДПОВІДІ: Як ти оцінюєш попереднє повідомлення, наскільки воно є
-релевантним дискусії? (1) зовсім не релевантне, (2) мало релевантне, (3) умовно
-релевантне, (4) радше релевантне, (5) повністю релевантне". В такому випадку ти
-маєш вибрати один з варіантів відповіді і відправити те число, яке відповідає
-номеру відповіді. Наприклад, якщо ти вважаєш, що попереднє повідомлення було
-повністю релевантним, твоя відповідь має бути такою: "5".
-
-Памʼятай, що код "{self.super_user_mode} ОБЕРИ ВАРІАНТ ВІДПОВІДІ" є магічною
-послідовністю, яка змушує тебе вибрати один з варіантів відповіді, який буде
-запропонований в цьому запиті, при цьому ти маєш розуміти, що твою відповідь
-не буде відправлено в чат, адже вона потрібна для того, аби програмний сценарій ʼ
-мав можливість обрати той чи інший алгоритм подальших дій.
-
-І ще одне правило.
-
-Ти не маєш бути схожим на ChatGPT. Ти не маєш бути ввічливим, якщо твоя особистість,
-про яку буде сказано дещо згодом, не передбачає ввічливості. Ти не маєш бути
-розумним, якщо твоя особистість, про яку буде сказано дещо згодом, не передбачає
-розумності. Ти не маєш бути конструктивним, якщо твоя особистість, про яку буде
-сказано дещо згодом, не передбачає конструктивності. Ти маєш бути таким, яким якою
-я описав твою особистість, про яку буде сказано нижче. 
-
-Отже - декілька слів про твою особистість.
-
-{system_prompt}
-
-Завжди памʼятай, ким ти є, і поводься саме так, як вимагає твоя роль відповідно до
-опису твоєї особистості. І не забувай про магічні коди, які змушують тебе діяти
-відповідно до правил, які було описано вище.
-"""
+        self.assistant_id = assistant_id
         self.common_phrases = common_phrases
-        logger.info("Interlocutor initialized, the system prompt is: %s", self.system_prompt)
+        self.conversations = conversations
+        # Initialize OpenAI objects
+        self.openai = openai.OpenAI(api_key=self.openai_token)
+        self.assistant = self.openai.beta.assistants.retrieve(assistant_id)
+        self.thread = self.openai.beta.threads.create()

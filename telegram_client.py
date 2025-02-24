@@ -1,3 +1,8 @@
+# I agree, this is lame that I place some "business logic" to this module (like
+# deciding what to do with the message). Perhaps I should move these parts to
+# some separate module (like "brain.py" or kind of that). TODO: think about it.
+
+import json
 import logging
 from typing import Optional, Coroutine, Any
 
@@ -11,6 +16,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.helpers import mention_html
 
 from interlocutor import Interlocutor
 from config import PROJECT_NAME
@@ -45,6 +51,26 @@ class TelegramClient:
         ] or (new_status == ChatMember.RESTRICTED and new_is_member is True)
 
         return was_member, is_member
+
+
+    @staticmethod
+    async def process_responses(
+            update: Update,
+            responses: list,
+            reply_to_message: Optional[int] = None
+    ) -> None:
+        for response in responses:
+            response = json.loads(response)
+            if response.get('type') == 'noop':
+                continue
+            message_parameters = {
+                "text": response.get('content', {}).get('message', 'Не знаю, що й сказати.'),
+                "parse_mode": ParseMode.HTML
+            }
+            if reply_to_message is not None:
+                message_parameters["reply_to_message_id"] = reply_to_message
+            message_parameters["text"] = f'{message_parameters["text"]}\n\nDEBUG INFO:<i>{response.get('content', {}).get('debug')}</i>'
+            await update.effective_chat.send_message(**message_parameters)
 
 
     async def track_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -104,65 +130,53 @@ class TelegramClient:
         member_user_id = member_user.id
         member_user_name = member_user.mention_html()
 
-        message_text = f'Салют, {member_user_name}!'
+        responses = []
 
         if not was_member and is_member:
-            message_text = await self.interlocutor.handle_user_joins_chat(
+            responses = await self.interlocutor.handle_user_joins_chat(
                 chat_id=update.effective_chat.id,
                 user_name=member_user_name,
                 cause_name=cause_user_name,
                 invited=(cause_user_id != member_user_id)
             )
         elif was_member and not is_member:
-            message_text = await self.interlocutor.handle_user_leaves_chat(
+            responses = await self.interlocutor.handle_user_leaves_chat(
                 chat_id=update.effective_chat.id,
                 user_name=member_user_name,
                 cause_name=cause_user_name,
                 kicked=(cause_user_id != member_user_id)
             )
 
-        await update.effective_chat.send_message(message_text, parse_mode=ParseMode.HTML)
+        await self.process_responses(update, responses, reply_to_message=None)
 
 
     async def handle_chat_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.debug("Handling chat message")
         """Greets the user and records that they started a chat with the bot if it's a private chat.
         Since no `my_chat_member` update is issued when a user starts a private chat with the bot
         for the first time, we have to track it explicitly here.
         """
-        user_name = update.effective_user.full_name
+        user_name = update.effective_user.username or update.effective_user.full_name
         chat = update.effective_chat
         if chat.type == Chat.PRIVATE:
             if chat.id not in context.bot_data.get("user_ids", set()):
                 logger.info("%s started a private chat with the bot", user_name)
                 context.bot_data.setdefault("user_ids", set()).add(chat.id)
-            response = await self.interlocutor.handle_private_message(
+            responses = await self.interlocutor.handle_private_message(
                 chat_id=chat.id,
                 message=update.effective_message.text,
                 user_name=user_name
             )
-            await update.effective_message.reply_markdown(response)
+            await self.process_responses(update, responses)
         elif chat.type in [Chat.GROUP, Chat.SUPERGROUP] and update.effective_message.text is not None:
-            must_reply = (
-                (
-                    # Check if the message contains the bot's username
-                    update.effective_message.text.__contains__(context.bot.username)
-                ) or
-                (
-                    # Check if the message is a reply to the bot's message
-                    update.effective_message.reply_to_message is not None and
-                    update.effective_message.reply_to_message.from_user is not None and
-                    update.effective_message.reply_to_message.from_user.id == context.bot.id
-                )
-            )
-            response = await self.interlocutor.handle_group_message(
+            responses = await self.interlocutor.handle_group_message(
                 chat_id=chat.id,
                 message=update.effective_message.text,
                 user_name=user_name,
                 group_name=chat.title,
-                reply_needed=must_reply
             )
-            if must_reply:
-                await update.effective_message.reply_markdown(response)
+            await self.process_responses(update, responses, reply_to_message=update.effective_message.message_id)
+
 
     def __init__(
             self,
