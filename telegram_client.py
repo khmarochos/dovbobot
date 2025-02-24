@@ -1,3 +1,7 @@
+# I agree, this is lame that I place some "business logic" to this module (like
+# deciding what to do with the message). Perhaps I should move these parts to
+# some separate module (like "brain.py" or kind of that). TODO: think about it.
+
 import json
 import logging
 from typing import Optional, Coroutine, Any
@@ -57,17 +61,16 @@ class TelegramClient:
     ) -> None:
         for response in responses:
             response = json.loads(response)
+            if response.get('type') == 'noop':
+                continue
+            message_parameters = {
+                "text": response.get('content', {}).get('message', 'Не знаю, що й сказати.'),
+                "parse_mode": ParseMode.HTML
+            }
             if reply_to_message is not None:
-                await update.effective_chat.send_message(
-                    response.get('content', {}).get('message', 'Не знаю, що й сказати.'),
-                    reply_to_message_id=reply_to_message,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await update.effective_chat.send_message(
-                    response.get('content', {}).get('message', 'Не знаю, що й сказати.'),
-                    parse_mode=ParseMode.HTML
-                )
+                message_parameters["reply_to_message_id"] = reply_to_message
+            message_parameters["text"] = f'{message_parameters["text"]}\n\nDEBUG INFO:<i>{response.get('content', {}).get('debug')}</i>'
+            await update.effective_chat.send_message(**message_parameters)
 
 
     async def track_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

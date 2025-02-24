@@ -11,7 +11,9 @@
           "remark",
           "question",
           "answer",
-          "congratulations"
+          "person",
+          "congratulations",
+          "noop"
         ]
       },
       "content": {
@@ -56,13 +58,18 @@
                 "description": "Neither yes nor no"
               }
             ]
+          },
+          "debug": {
+            "type": "string",
+            "description": "Debug information"
           }
         },
         "required": [
           "sender",
           "recipient",
           "message",
-          "yes"
+          "yes",
+          "debug"
         ],
         "additionalProperties": false
       }
