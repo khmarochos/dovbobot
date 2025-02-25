@@ -52,7 +52,6 @@ class TelegramClient:
 
         return was_member, is_member
 
-
     @staticmethod
     async def process_responses(
             update: Update,
@@ -63,18 +62,31 @@ class TelegramClient:
             response = json.loads(response)
             if response.get('type') == 'noop':
                 continue
-            message_parameters = {
-                "text": response.get('content', {}).get('message', 'Не знаю, що й сказати.'),
-                "parse_mode": ParseMode.HTML
+            message_parameters: dict = {
+                'text': response.get('content', {}).get('message', 'Не знаю, що й сказати.'),
+                'parse_mode': ParseMode.HTML
             }
             if reply_to_message is not None:
-                message_parameters["reply_to_message_id"] = reply_to_message
-            message_parameters["text"] = f'{message_parameters["text"]}\n\nDEBUG INFO:<i>{response.get('content', {}).get('debug')}</i>'
+                message_parameters.update({'reply_to_message_id': reply_to_message})
+            message_parameters.update({
+                'text':
+                    f'{message_parameters['text']}\n\n'
+                    f'DEBUG INFO: <i>{response.get('content', {}).get('debug')}</i>'
+            })
             await update.effective_chat.send_message(**message_parameters)
 
-
     async def track_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
+        chat = update.effective_chat
+        chat_id = chat.id
+        chat_type = chat.type
+        chat_title = chat.title
+
         """Tracks the chats the bot is in."""
+        if self.interlocutor.get_conversation(chat_id) is None:
+            logger.info("Adding chat %s to the conversation tracker", chat_id)
+            self.interlocutor.add_conversation(chat_id)
+
         result = self.extract_status_change(update.my_chat_member)
         if result is None:
             return
@@ -84,35 +96,30 @@ class TelegramClient:
         cause_name = update.effective_user.full_name
 
         # Handle chat types differently:
-        chat = update.effective_chat
-        if chat.type == Chat.PRIVATE:
+        if chat_type == Chat.PRIVATE:
             if not was_member and is_member:
                 # This may not be really needed in practice because most clients will automatically
                 # send a /start command after the user unblocks the bot, and start_private_chat()
                 # will add the user to "user_ids".
                 # We're including this here for the sake of the example.
                 logger.info("%s unblocked the bot", cause_name)
-                context.bot_data.setdefault("user_ids", set()).add(chat.id)
             elif was_member and not is_member:
                 logger.info("%s blocked the bot", cause_name)
-                context.bot_data.setdefault("user_ids", set()).discard(chat.id)
-        elif chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+        elif chat_type in [Chat.GROUP, Chat.SUPERGROUP]:
             if not was_member and is_member:
                 logger.info("%s added the bot to the group %s", cause_name, chat.title)
-                context.bot_data.setdefault("group_ids", set()).add(chat.id)
-                hello: str = await self.interlocutor.handle_bot_joins_chat(chat_id=chat.id, group_name=chat.title)
-                await update.effective_chat.send_message(hello, parse_mode=ParseMode.HTML)
+                hello: list = await self.interlocutor.handle_bot_joins_chat(
+                    chat_id=chat_id,
+                    group_name=chat_title
+                )
+                await self.process_responses(update, hello)
             elif was_member and not is_member:
                 logger.info("%s removed the bot from the group %s", cause_name, chat.title)
-                context.bot_data.setdefault("group_ids", set()).discard(chat.id)
-        elif chat.type == Chat.CHANNEL:
+        elif chat_type == Chat.CHANNEL:
             if not was_member and is_member:
                 logger.info("%s added the bot to the channel %s", cause_name, chat.title)
-                context.bot_data.setdefault("channel_ids", set()).add(chat.id)
             elif was_member and not is_member:
                 logger.info("%s removed the bot from the channel %s", cause_name, chat.title)
-                context.bot_data.setdefault("channel_ids", set()).discard(chat.id)
-
 
     async def greet_chat_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Greets new users in chats and announces when someone leaves"""
@@ -149,7 +156,6 @@ class TelegramClient:
 
         await self.process_responses(update, responses, reply_to_message=None)
 
-
     async def handle_chat_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.debug("Handling chat message")
         """Greets the user and records that they started a chat with the bot if it's a private chat.
@@ -159,9 +165,9 @@ class TelegramClient:
         user_name = update.effective_user.username or update.effective_user.full_name
         chat = update.effective_chat
         if chat.type == Chat.PRIVATE:
-            if chat.id not in context.bot_data.get("user_ids", set()):
+            if chat.id not in context.bot_data.get("user_ids", dict()):
                 logger.info("%s started a private chat with the bot", user_name)
-                context.bot_data.setdefault("user_ids", set()).add(chat.id)
+                context.bot_data.setdefault("user_ids", dict()).update({chat.id: None})
             responses = await self.interlocutor.handle_private_message(
                 chat_id=chat.id,
                 message=update.effective_message.text,
@@ -177,7 +183,6 @@ class TelegramClient:
             )
             await self.process_responses(update, responses, reply_to_message=update.effective_message.message_id)
 
-
     def __init__(
             self,
             telegram_token: str,
@@ -186,6 +191,9 @@ class TelegramClient:
         """Start the bot."""
         # Set the interlocutor
         self.interlocutor = interlocutor
+
+        # The dictionary of chats and OpenAI conversations
+        self.chats_and_threads = {}
 
         # Create the Application and pass it your bot's token.
         application = Application.builder().token(telegram_token).build()
@@ -197,8 +205,7 @@ class TelegramClient:
         # Handle members joining/leaving chats.
         application.add_handler(ChatMemberHandler(self.greet_chat_members, ChatMemberHandler.CHAT_MEMBER))
 
-        # Interpret any other command or text message as a start of a private chat.
-        # This will record the user as being in a private chat with bot.
+        # Handle the messages
         application.add_handler(MessageHandler(filters.CHAT, self.handle_chat_message))
 
         # Run the bot until the user presses Ctrl-C

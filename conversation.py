@@ -2,6 +2,10 @@ import logging
 from collections import deque
 from enum import StrEnum
 
+from openai.types.beta import Thread
+
+from openai import OpenAI
+
 from config import PROJECT_NAME
 
 
@@ -38,6 +42,12 @@ class Conversation:
     def get_history(self) -> list:
         return list(self.conversation_history)
 
+    def get_thread(self) -> Thread:
+        return self.thread
+
+    def get_thread_id(self) -> str:
+        return self.get_thread.id
+
     def prettify(self):
         result = ''
         for message in self.get_history():
@@ -46,7 +56,9 @@ class Conversation:
 
     def __init__(
             self,
+            thread: Thread,
             history_size: int
     ) -> None:
+        self.thread = thread
         self.history_size = history_size
         self.conversation_history = deque(maxlen=history_size)
