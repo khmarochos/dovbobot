@@ -54,16 +54,24 @@ def chat_event_handler(function):
     """
     async def wrapper(self, *args, **kwargs) -> asyncio.Task:
         # logger.debug(f'Wrapper for {function.__name__} called')
+        # Is the 'conversation' parameter already provided?
         if kwargs.get('conversation') is None:
+            # If the 'conversation' parameter is not provided, we'll attempt to
+            # fetch the related Conversation object from the global dictionary
+            # or create a new one if it doesn't exist.
+            # Let's check if the 'chat_id' parameter is provided.
             if (chat_id := kwargs.get('chat_id')) is None:
                 raise ValueError("The 'chat_id' parameter is required for all chat event handlers")
-            # Try to find the related Conversation object or create a new one
+            # Try to find the related Conversation object or create a new one.
             if self.get_conversation(chat_id) is None:
+                # Seems to be a new chat, let's create a new Conversation object.
                 logger.debug(f'Creating a new conversation for chat {chat_id}')
+                # Create a new thread.
+                thread = self.create_thread()
                 self.add_conversation(
                     chat_id=chat_id,
                     conversation=conversation.Conversation(
-                        thread=self.openai.beta.threads.create(),
+                        thread=thread,
                         history_size=DEFAULT_HISTORY_SIZE
                     )
                 )
@@ -107,6 +115,15 @@ class Interlocutor:
 
     def get_conversation(self, chat_id: int) -> conversation.Conversation:
         return self.conversations.get(chat_id)
+
+    def reset_conversation(self, chat_id: int):
+        conversation = self.get_conversation(chat_id)
+        thread_id = conversation.get_thread_id()
+        self.openai.beta.threads.delete(thread_id)
+        conversation.set_thread(self.create_thread())
+
+    def create_thread(self) -> Thread:
+        return self.openai.beta.threads.create()
 
     async def call_openai(
             self,
@@ -263,3 +280,4 @@ class Interlocutor:
         # Initialize OpenAI objects
         self.openai = openai.OpenAI(api_key=self.openai_token)
         self.assistant = self.openai.beta.assistants.retrieve(assistant_id)
+        self.thread = None

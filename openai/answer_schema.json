@@ -59,6 +59,18 @@
               }
             ]
           },
+          "winner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Name of the winner"
+              },
+              {
+                "type": "null",
+                "description": "No one is the winner yet"
+              }
+            ]
+          },
           "debug": {
             "type": "string",
             "description": "Debug information"
@@ -69,6 +81,7 @@
           "recipient",
           "message",
           "yes",
+          "winner",
           "debug"
         ],
         "additionalProperties": false

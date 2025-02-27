@@ -51,8 +51,8 @@ class TelegramClient:
 
         return was_member, is_member
 
-    @staticmethod
     async def process_responses(
+            self,
             update: Update,
             responses: list,
             reply_to_message: Optional[int] = None
@@ -73,6 +73,14 @@ class TelegramClient:
                     f'DEBUG INFO: <i>{response.get('content', {}).get('debug')}</i>'
             })
             await update.effective_chat.send_message(**message_parameters)
+            if (winner := response.get('content', {}).get('winner')) is not None:
+                logger.debug("The winner is %s", winner)
+                await update.effective_chat.send_message(
+                    text=f"Виграв <b>{winner}</b>!",
+                    parse_mode=ParseMode.HTML
+                )
+                chat_id = update.effective_chat.id
+                thread_id = self.interlocutor.reset_conversation(chat_id)
 
     async def track_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat = update.effective_chat

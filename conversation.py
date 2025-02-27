@@ -60,6 +60,9 @@ class Conversation:
     def get_thread_id(self) -> str:
         return self.get_thread().id
 
+    def set_thread(self, thread: Thread) -> None:
+        self.thread = thread
+
     def prettify(self):
         result = ''
         for message in self.get_history():
