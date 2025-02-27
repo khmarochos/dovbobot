@@ -1,9 +1,10 @@
 # I agree, this is lame that I place some "business logic" to this module (like
 # deciding what to do with the message). Perhaps I should move these parts to
 # some separate module (like "brain.py" or kind of that). TODO: think about it.
-
+import asyncio
 import json
 import logging
+from asyncio import Task
 from typing import Optional, Coroutine, Any
 
 from telegram import Chat, ChatMember, ChatMemberUpdated, Update
@@ -11,12 +12,10 @@ from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     ChatMemberHandler,
-    CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
 )
-from telegram.helpers import mention_html
 
 from interlocutor import Interlocutor
 from config import PROJECT_NAME
@@ -76,7 +75,6 @@ class TelegramClient:
             await update.effective_chat.send_message(**message_parameters)
 
     async def track_chats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-
         chat = update.effective_chat
         chat_id = chat.id
         chat_type = chat.type
@@ -98,10 +96,6 @@ class TelegramClient:
         # Handle chat types differently:
         if chat_type == Chat.PRIVATE:
             if not was_member and is_member:
-                # This may not be really needed in practice because most clients will automatically
-                # send a /start command after the user unblocks the bot, and start_private_chat()
-                # will add the user to "user_ids".
-                # We're including this here for the sake of the example.
                 logger.info("%s unblocked the bot", cause_name)
             elif was_member and not is_member:
                 logger.info("%s blocked the bot", cause_name)
@@ -126,7 +120,6 @@ class TelegramClient:
         result = self.extract_status_change(update.chat_member)
         if result is None:
             return
-
         was_member, is_member = result
 
         cause_user = update.chat_member.from_user
@@ -137,24 +130,38 @@ class TelegramClient:
         member_user_id = member_user.id
         member_user_name = member_user.mention_html()
 
-        responses = []
+        task: Optional[Task[Any]] = None
 
         if not was_member and is_member:
-            responses = await self.interlocutor.handle_user_joins_chat(
-                chat_id=update.effective_chat.id,
-                user_name=member_user_name,
-                cause_name=cause_user_name,
-                invited=(cause_user_id != member_user_id)
+            task = asyncio.create_task(
+                self.interlocutor.handle_user_joins_chat(
+                    chat_id=update.effective_chat.id,
+                    user_name=member_user_name,
+                    cause_name=cause_user_name,
+                    invited=(cause_user_id != member_user_id)
+                )
             )
         elif was_member and not is_member:
-            responses = await self.interlocutor.handle_user_leaves_chat(
-                chat_id=update.effective_chat.id,
-                user_name=member_user_name,
-                cause_name=cause_user_name,
-                kicked=(cause_user_id != member_user_id)
+            task = asyncio.create_task(
+                self.interlocutor.handle_user_leaves_chat(
+                    chat_id=update.effective_chat.id,
+                    user_name=member_user_name,
+                    cause_name=cause_user_name,
+                    kicked=(cause_user_id != member_user_id)
+                )
             )
 
-        await self.process_responses(update, responses, reply_to_message=None)
+        if task is not None:
+            task.add_done_callback(
+                lambda future_result:
+                    asyncio.create_task(
+                        self.process_responses(
+                            update,
+                            future_result.result(),
+                            reply_to_message=None
+                        )
+                    )
+            )
 
     async def handle_chat_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.debug("Handling chat message")
@@ -164,24 +171,38 @@ class TelegramClient:
         """
         user_name = update.effective_user.username or update.effective_user.full_name
         chat = update.effective_chat
+        task: Optional[Task[Any]] = None
+        reply_to_message = {}
         if chat.type == Chat.PRIVATE:
-            if chat.id not in context.bot_data.get("user_ids", dict()):
-                logger.info("%s started a private chat with the bot", user_name)
-                context.bot_data.setdefault("user_ids", dict()).update({chat.id: None})
-            responses = await self.interlocutor.handle_private_message(
-                chat_id=chat.id,
-                message=update.effective_message.text,
-                user_name=user_name
+            task = asyncio.create_task(
+                    self.interlocutor.handle_private_message(
+                    chat_id=chat.id,
+                    message=update.effective_message.text,
+                    user_name=user_name
+                )
             )
-            await self.process_responses(update, responses)
         elif chat.type in [Chat.GROUP, Chat.SUPERGROUP] and update.effective_message.text is not None:
-            responses = await self.interlocutor.handle_group_message(
-                chat_id=chat.id,
-                message=update.effective_message.text,
-                user_name=user_name,
-                group_name=chat.title,
+            task = asyncio.create_task(
+                self.interlocutor.handle_group_message(
+                    chat_id=chat.id,
+                    message=update.effective_message.text,
+                    user_name=user_name,
+                    group_name=chat.title,
+                )
             )
-            await self.process_responses(update, responses, reply_to_message=update.effective_message.message_id)
+            reply_to_message = {'reply_to_message': update.effective_message.message_id}
+
+        if task is not None:
+            task.add_done_callback(
+                lambda future_result:
+                    asyncio.create_task(
+                        self.process_responses(
+                            update,
+                            future_result.result(),
+                            **reply_to_message
+                        )
+                    )
+            )
 
     def __init__(
             self,
@@ -191,9 +212,6 @@ class TelegramClient:
         """Start the bot."""
         # Set the interlocutor
         self.interlocutor = interlocutor
-
-        # The dictionary of chats and OpenAI conversations
-        self.chats_and_threads = {}
 
         # Create the Application and pass it your bot's token.
         application = Application.builder().token(telegram_token).build()

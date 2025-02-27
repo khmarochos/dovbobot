@@ -1,9 +1,13 @@
+import asyncio.tasks
 import json
 import logging
 import time
 from enum import StrEnum
+from threading import activeCount
 
+from openai.pagination import SyncCursorPage
 from openai.types.beta import Thread
+from openai.types.beta.threads import Run
 
 import openai
 from typing_extensions import Optional
@@ -48,7 +52,7 @@ def chat_event_handler(function):
     :param function: The chat event handler function that needs to be wrapped
     :return: The wrapped function
     """
-    async def wrapper(self, *args, **kwargs):
+    async def wrapper(self, *args, **kwargs) -> asyncio.Task:
         # logger.debug(f'Wrapper for {function.__name__} called')
         if kwargs.get('conversation') is None:
             if (chat_id := kwargs.get('chat_id')) is None:
@@ -106,28 +110,33 @@ class Interlocutor:
 
     async def call_openai(
             self,
-            thread: Thread,
+            conversation: conversation.Conversation,
             prompt: Optional[str] = None
     ):
         logger.debug('Prompt: %s', prompt)
+        while conversation.has_active_run():
+            logger.debug('Waiting for the previous run to finish')
+            await asyncio.sleep(0.5)
         request = self.openai.beta.threads.messages.create(
-            thread_id=thread.id,
+            thread_id=conversation.get_thread_id(),
             role="user",
             content=prompt
         )
         run = self.openai.beta.threads.runs.create(
-            thread_id=thread.id,
+            thread_id=conversation.get_thread_id(),
             assistant_id=self.assistant_id,
         )
+        conversation.set_active_run(run)
         while run.status == "queued" or run.status == "in_progress":
             logger.debug('Run status: %s', run.status)
             run = self.openai.beta.threads.runs.retrieve(
-                thread_id=thread.id,
+                thread_id=conversation.get_thread_id(),
                 run_id=run.id,
             )
-            time.sleep(0.5)
+            await asyncio.sleep(0.5)
+        conversation.clear_active_run()
         messages = self.openai.beta.threads.messages.list(
-            thread_id=thread.id,
+            thread_id=conversation.get_thread_id(),
             run_id=run.id,
             after=request.id,
             order="asc",
@@ -150,19 +159,19 @@ class Interlocutor:
     ) -> list[str]:
         message = message.strip()
         conversation.add_user(message)
-        logger.debug('PVT %s> %s', user_name, message)
+        logger.debug('PVT %s > %s', user_name, message)
         if message is None or message == '/start':
             what_to_say = self.common_phrases[CommonPhrase.BOT_SAYS_HI].format(user_name=user_name)
             responses = await self.call_openai(
-                thread=conversation.get_thread(),
+                conversation=conversation,
                 prompt=self.generate_prompt(what_to_say)
             )
         else:
             responses = await self.call_openai(
-                thread=conversation.get_thread(),
+                conversation=conversation,
                 prompt=self.generate_message(user_name, message)
             )
-        logger.debug('PVT <%s %s', user_name, responses)
+        logger.debug('PVT < %s %s', user_name, responses)
         return responses
 
     @chat_event_handler
@@ -178,7 +187,7 @@ class Interlocutor:
         conversation.add_user(message)
         logger.debug('GRP %s, %s > %s', group_name, user_name, message)
         responses = await self.call_openai(
-            thread=conversation.get_thread(),
+            conversation=conversation,
             prompt=self.generate_message(user_name, message)
         )
         logger.debug('GRP %s, %s < %s', group_name, user_name, responses)
@@ -193,7 +202,7 @@ class Interlocutor:
     ) -> list[str]:
         what_to_say = self.common_phrases[CommonPhrase.BOT_JOINS_CHAT].format(group_name=group_name)
         responses = await self.call_openai(
-            thread=conversation.get_thread(),
+            conversation=conversation,
             prompt=self.generate_prompt(what_to_say)
         )
         return responses
@@ -214,7 +223,7 @@ class Interlocutor:
             inviter_name=cause_name
         )
         responses = await self.call_openai(
-            thread=conversation.get_thread(),
+            conversation=conversation,
             prompt=self.generate_prompt(what_to_say)
         )
         return responses
@@ -235,7 +244,7 @@ class Interlocutor:
             kicker_name=cause_name
         )
         responses = await self.call_openai(
-            thread=conversation.get_thread(),
+            conversation=conversation,
             prompt=self.generate_prompt(what_to_say)
         )
         return responses

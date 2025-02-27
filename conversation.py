@@ -39,6 +39,18 @@ class Conversation:
     def add_assistant(self, content):
         self.add(content, MessageRole.ASSISTANT.__str__())
 
+    def set_active_run(self, run):
+        self.active_run = run
+
+    def get_active_run(self):
+        return self.active_run
+
+    def has_active_run(self):
+        return self.active_run is not None
+
+    def clear_active_run(self):
+        self.set_active_run(None)
+
     def get_history(self) -> list:
         return list(self.conversation_history)
 
@@ -46,7 +58,7 @@ class Conversation:
         return self.thread
 
     def get_thread_id(self) -> str:
-        return self.get_thread.id
+        return self.get_thread().id
 
     def prettify(self):
         result = ''
@@ -62,3 +74,4 @@ class Conversation:
         self.thread = thread
         self.history_size = history_size
         self.conversation_history = deque(maxlen=history_size)
+        self.active_run = None
