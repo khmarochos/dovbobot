@@ -54,16 +54,21 @@
           }
         },
         "required": [
-          "sender",
           "recipient",
+          "sender",
           "message"
         ],
         "additionalProperties": false
+      },
+      "timestamp": {
+            "type": "integer",
+            "description": "Time of the query"
       }
     },
     "required": [
       "type",
-      "content"
+      "content",
+      "timestamp"
     ],
     "additionalProperties": false
   }

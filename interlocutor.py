@@ -82,7 +82,9 @@ def chat_event_handler(function):
 class Interlocutor:
 
     @staticmethod
-    def generate_message(user_name: str, message: str) -> str:
+    def generate_message(user_name: str, message: str, timestamp: int = None) -> str:
+        if timestamp is None:
+            timestamp = int(time.time())
         return json.dumps(
             {
                 "type": "message",
@@ -90,12 +92,15 @@ class Interlocutor:
                     "recipient": None,
                     "sender": user_name,
                     "message": message
-                }
+                },
+                "timestamp": timestamp
             }
         )
 
     @staticmethod
-    def generate_prompt(prompt: str) -> str:
+    def generate_prompt(prompt: str, timestamp: int = None) -> str:
+        if timestamp is None:
+            timestamp = int(time.time())
         return json.dumps(
             {
                 "type": "prompt",
@@ -103,7 +108,8 @@ class Interlocutor:
                     "recipient": PROJECT_NAME,
                     "sender": None,
                     "message": prompt
-                }
+                },
+                "timestamp": timestamp
             }
         )
 
