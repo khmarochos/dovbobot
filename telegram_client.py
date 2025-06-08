@@ -68,9 +68,10 @@ class TelegramClient:
             if reply_to_message is not None:
                 message_parameters.update({'reply_to_message_id': reply_to_message})
             message_parameters.update({
-                'text':
-                    f'{message_parameters['text']}\n\n'
-                    f'DEBUG INFO: <i>{response.get('content', {}).get('debug')}</i>'
+                'text': (
+                    f"{message_parameters['text']}\n\n"
+                    f"DEBUG INFO: <i>{response.get('content', {}).get('debug')}</i>"
+                )
             })
             await update.effective_chat.send_message(**message_parameters)
             if (winner := response.get('content', {}).get('winner')) is not None:
